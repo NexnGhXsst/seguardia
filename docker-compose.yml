@@ -1,0 +1,25 @@
+ s3-guardian:
+   image: yourusername/s3-guardian:latest
+   container_name: s3-guardian-backup
+   environment:
+     # AWS Credentials (REQUIRED)
+     AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+     AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+     AWS_REGION: ${AWS_REGION:-us-east-1}
+     
+     # S3 Configuration (REQUIRED)
+     S3_BUCKET: ${S3_BUCKET}
+     S3_PREFIX: ${S3_PREFIX:-backups}
+     
+     # Backup Configuration
+     TARGET_PATH: /data                        # Path inside container to backup
+     BACKUP_NAME: ${BACKUP_NAME:-my-app}       # Identifier for this backup
+     BACKUP_INTERVAL: ${BACKUP_INTERVAL:-6h}   # How often to backup (e.g., 30m, 1h, 6h, 1d)
+     RETENTION_DAYS: ${RETENTION_DAYS:-30}     # Days to keep backups
+     COMPRESSION_LEVEL: ${COMPRESSION_LEVEL:-6} # 1-9, where 9 is max compression
+   
+   volumes:
+     # Mount the same volume as your app (READ-ONLY for safety)
+     - app_data:/data:ro
+   
+   restart: unless-stopped
