@@ -1,0 +1,140 @@
+name: Scheduled Backup Test
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  IMAGE_NAME: ghcr.io/nexnghxsst/seguardia
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build test image
+        run: |
+          docker build -t s3-guardian:test .
+
+      - name: Create test environment
+        run: |
+          # Create test data directory
+          mkdir -p test-data
+          echo "Test file 1" > test-data/file1.txt
+          echo "Test file 2" > test-data/file2.txt
+          echo "Timestamp: $(date)" > test-data/timestamp.txt
+
+      - name: Run container tests
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TEST_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TEST_AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ secrets.TEST_S3_BUCKET }}
+          S3_ENDPOINT_URL: ${{ secrets.TEST_S3_ENDPOINT_URL }}
+        run: |
+          echo "Starting S3-Guardian test container..."
+          
+          # Start container in background
+          docker run -d \
+            --name s3-guardian-test \
+            -e AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
+            -e AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
+            -e S3_BUCKET="${S3_BUCKET}" \
+            -e S3_ENDPOINT_URL="${S3_ENDPOINT_URL}" \
+            -e TARGET_PATH=/data \
+            -e BACKUP_NAME=github-actions-test \
+            -e BACKUP_INTERVAL=1m \
+            -e RETENTION_DAYS=1 \
+            -v $(pwd)/test-data:/data:ro \
+            s3-guardian:test
+          
+          echo "Container started. Waiting for initial backup..."
+          sleep 10
+          
+          # Wait up to 5 minutes for successful backup
+          TIMEOUT=300
+          ELAPSED=0
+          SUCCESS=false
+          
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            if docker logs s3-guardian-test 2>&1 | grep -q "Backup completed successfully"; then
+              echo "✓ Backup completed successfully!"
+              SUCCESS=true
+              break
+            fi
+            echo "Waiting for backup... ($ELAPSED seconds elapsed)"
+            sleep 10
+            ELAPSED=$((ELAPSED + 10))
+          done
+          
+          # Show logs
+          echo ""
+          echo "=== Container Logs ==="
+          docker logs s3-guardian-test
+          echo "======================"
+          echo ""
+          
+          # Stop container
+          docker stop s3-guardian-test
+          docker rm s3-guardian-test
+          
+          # Check if test passed
+          if [ "$SUCCESS" = true ]; then
+            echo "✓ Test passed: Backup completed within 5 minutes"
+            exit 0
+          else
+            echo "✗ Test failed: No successful backup within 5 minutes"
+            exit 1
+          fi
+
+      - name: Verify backup in S3
+        if: success()
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TEST_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TEST_AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ secrets.TEST_S3_BUCKET }}
+          S3_ENDPOINT_URL: ${{ secrets.TEST_S3_ENDPOINT_URL }}
+        run: |
+          # Install AWS CLI
+          sudo apt-get update
+          sudo apt-get install -y awscli
+          
+          echo "Checking for backup in S3..."
+          
+          # List backups
+          if [ -n "$S3_ENDPOINT_URL" ]; then
+            aws s3 ls s3://${S3_BUCKET}/backups/github-actions-test/ --endpoint-url ${S3_ENDPOINT_URL} || exit 1
+          else
+            aws s3 ls s3://${S3_BUCKET}/backups/github-actions-test/ || exit 1
+          fi
+          
+          echo "✓ Backup verified in S3!"
+
+      - name: Cleanup test backups
+        if: always()
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TEST_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TEST_AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ secrets.TEST_S3_BUCKET }}
+          S3_ENDPOINT_URL: ${{ secrets.TEST_S3_ENDPOINT_URL }}
+        run: |
+          echo "Cleaning up test backups older than 1 day..."
+          
+          # Install AWS CLI if not present
+          command -v aws >/dev/null 2>&1 || sudo apt-get install -y awscli
+          
+          # Delete old test backups
+          if [ -n "$S3_ENDPOINT_URL" ]; then
+            aws s3 rm s3://${S3_BUCKET}/backups/github-actions-test/ --recursive --endpoint-url ${S3_ENDPOINT_URL} || echo "No old backups to clean"
+          else
+            aws s3 rm s3://${S3_BUCKET}/backups/github-actions-test/ --recursive || echo "No old backups to clean"
+          fi
+          
+          echo "✓ Cleanup complete"
