@@ -63,6 +63,7 @@ class S3Guardian:
         logger.info(f"S3-Guardian initialized")
         logger.info(f"Target: {self.target_path}")
         logger.info(f"S3 Bucket: {self.s3_bucket}/{self.s3_prefix}")
+        logger.info(f"Endpoint: {self.s3_endpoint_url}")
         logger.info(f"Interval: {self.backup_interval}")
         logger.info(f"Retention: {self.retention_days} days")
     
