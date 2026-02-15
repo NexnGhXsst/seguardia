@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S3-Guardian - Automated Docker Backups</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav>
+        <div class="logo-container">
+            <div class="logo">
+                <div>
+                    <div class="logo-text">S3-G</div>
+                    <div class="logo-subtitle">GUARDIAN</div>
+                </div>
+            </div>
+        </div>
+        <ul>
+            <li><a href="#home" class="active">HOME</a></li>
+            <li><a href="#features">FEATURES</a></li>
+            <li><a href="#quickstart">QUICK START</a></li>
+            <li><a href="#configuration">CONFIGURATION</a></li>
+            <li><a href="#examples">EXAMPLES</a></li>
+            <li><a href="#github">GITHUB</a></li>
+        </ul>
+    </nav>
+
+    <!-- Main Content -->
+    <main>
+        <!-- Hero Section -->
+        <section id="home" class="hero">
+            <h1>Hello,</h1>
+            <p>Welcome to S3-Guardian – your automated backup solution for Docker volumes. Secure, simple, and reliable.</p>
+            <a href="#quickstart" class="hero-button">Get Started</a>
+        </section>
+
+        <!-- Features -->
+        <section id="features">
+            <h2>Features</h2>
+            <div class="features">
+                <div class="feature-card">
+                    <div class="feature-icon">🔄</div>
+                    <h3>Automatic</h3>
+                    <p>Scheduled backups without manual intervention. Set it up once, run forever.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">☁️</div>
+                    <h3>S3-Compatible</h3>
+                    <p>Works with AWS S3, Cloudflare R2, Backblaze B2, MinIO and all S3-compatible storage.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📦</div>
+                    <h3>Smart Compression</h3>
+                    <p>Intelligent tar.gz compression with configurable levels for optimal storage usage.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🧹</div>
+                    <h3>Auto-Cleanup</h3>
+                    <p>Automatic deletion of old backups after configurable retention period.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🐳</div>
+                    <h3>Sidecar Pattern</h3>
+                    <p>Runs alongside your main application without performance impact or interference.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <h3>Secure</h3>
+                    <p>Read-only volume mounts and non-root user for maximum security.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Quick Start -->
+        <section id="quickstart">
+            <h2>Quick Start</h2>
+            <p>Add S3-Guardian to your docker-compose.yml:</p>
+            
+            <div class="code-block">
+                <pre><code>version: '3.8'
+
+services:
+  your-app:
+    image: your-app:latest
+    volumes:
+      - app_data:/data
+
+  s3-guardian:
+    image: ghcr.io/nexnghxsst/seguardia:latest
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      S3_BUCKET: my-backups
+      S3_ENDPOINT_URL: https://your-account.r2.cloudflarestorage.com
+      TARGET_PATH: /data
+      BACKUP_INTERVAL: 6h
+    volumes:
+      - app_data:/data:ro
+    restart: unless-stopped
+
+volumes:
+  app_data:</code></pre>
+            </div>
+
+            <p>Start with a simple command:</p>
+            <div class="code-block">
+                <pre><code>docker-compose up -d</code></pre>
+            </div>
+        </section>
+
+        <!-- Configuration -->
+        <section id="configuration">
+            <h2>Configuration</h2>
+            <p>All settings are controlled via environment variables:</p>
+            
+            <div class="config-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Variable</th>
+                            <th>Status</th>
+                            <th>Default</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>AWS_ACCESS_KEY_ID</code></td>
+                            <td><span class="badge badge-required">Required</span></td>
+                            <td>-</td>
+                            <td>S3/R2 Access Key</td>
+                        </tr>
+                        <tr>
+                            <td><code>AWS_SECRET_ACCESS_KEY</code></td>
+                            <td><span class="badge badge-required">Required</span></td>
+                            <td>-</td>
+                            <td>S3/R2 Secret Key</td>
+                        </tr>
+                        <tr>
+                            <td><code>S3_BUCKET</code></td>
+                            <td><span class="badge badge-required">Required</span></td>
+                            <td>-</td>
+                            <td>Bucket name</td>
+                        </tr>
+                        <tr>
+                            <td><code>TARGET_PATH</code></td>
+                            <td><span class="badge badge-required">Required</span></td>
+                            <td>-</td>
+                            <td>Path to backup</td>
+                        </tr>
+                        <tr>
+                            <td><code>S3_ENDPOINT_URL</code></td>
+                            <td><span class="badge badge-optional">Optional</span></td>
+                            <td>-</td>
+                            <td>For R2/B2/MinIO</td>
+                        </tr>
+                        <tr>
+                            <td><code>BACKUP_INTERVAL</code></td>
+                            <td><span class="badge badge-optional">Optional</span></td>
+                            <td>6h</td>
+                            <td>Backup frequency (30m, 1h, 6h, 1d)</td>
+                        </tr>
+                        <tr>
+                            <td><code>RETENTION_DAYS</code></td>
+                            <td><span class="badge badge-optional">Optional</span></td>
+                            <td>30</td>
+                            <td>Days until deletion</td>
+                        </tr>
+                        <tr>
+                            <td><code>COMPRESSION_LEVEL</code></td>
+                            <td><span class="badge badge-optional">Optional</span></td>
+                            <td>6</td>
+                            <td>Compression (1-9)</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Examples -->
+        <section id="examples">
+            <h2>Examples</h2>
+            
+            <h3>Minecraft Server</h3>
+            <div class="code-block">
+                <pre><code>s3-guardian:
+  image: ghcr.io/nexnghxsst/seguardia:latest
+  environment:
+    S3_BUCKET: minecraft-backups
+    TARGET_PATH: /data
+    BACKUP_INTERVAL: 6h
+  volumes:
+    - minecraft_data:/data:ro</code></pre>
+            </div>
+
+            <h3>PostgreSQL Database</h3>
+            <div class="code-block">
+                <pre><code>s3-guardian:
+  image: ghcr.io/nexnghxsst/seguardia:latest
+  environment:
+    S3_BUCKET: db-backups
+    TARGET_PATH: /var/lib/postgresql/data
+    BACKUP_INTERVAL: 12h
+    RETENTION_DAYS: 90
+  volumes:
+    - postgres_data:/var/lib/postgresql/data:ro</code></pre>
+            </div>
+        </section>
+
+        <!-- GitHub -->
+        <section id="github">
+            <h2>GitHub</h2>
+            <p>S3-Guardian is open source and available on GitHub:</p>
+            <div class="code-block">
+                <pre><code>git clone https://github.com/NexnGhXsst/s3-guardian.git</code></pre>
+            </div>
+            <p>
+                <a href="https://github.com/NexnGhXsst/s3-guardian" class="hero-button" style="margin-top: 20px;">View Repository</a>
+            </p>
+        </section>
+    </main>
+</body>
+</html>
