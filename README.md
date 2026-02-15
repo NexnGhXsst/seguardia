@@ -32,7 +32,7 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       S3_BUCKET: my-backups
-      S3_ENDPOINT_URL: https://your-account.r2.cloudflarestorage.com
+      S3_ENDPOINT_URL: https://your-account.for.s3.compatible.systems
       TARGET_PATH: /data
       BACKUP_INTERVAL: 6h
     volumes:
