@@ -38,7 +38,7 @@ class S3Guardian:
         self.s3_bucket = os.getenv('S3_BUCKET')
         self.s3_prefix = os.getenv('S3_PREFIX', 'backups')
         self.aws_region = os.getenv('AWS_REGION', 'us-east-1')
-        self.s3_endpoint_url = os.gentenv('S3_ENDPOINT_URL')
+        self.s3_endpoint_url = os.getenv('S3_ENDPOINT_URL')
         
         # Backup Configuration
         self.target_path = Path(os.getenv('TARGET_PATH'))
