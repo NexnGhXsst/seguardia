@@ -15,6 +15,7 @@ from pathlib import Path
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 import schedule
+import requests
 
 # Configure logging for simplicity
 logging.basicConfig(
@@ -47,6 +48,11 @@ class S3Guardian:
         self.retention_days = int(os.getenv('RETENTION_DAYS', '30'))
         self.compression_level = int(os.getenv('COMPRESSION_LEVEL', '6'))
         
+        # Webhook Configuration
+        self.webhook_url = os.getenv('WEBHOOK_URL')
+        self.webhook_on_success = os.getenv('WEBHOOK_ON_SUCCESS', 'true').lower() == 'true'
+        self.webhook_on_failure = os.getenv('WEBHOOK_ON_FAILURE', 'true').lower() == 'true'
+        
         # Temporary directory for staging backups
         self.temp_dir = Path('/tmp/s3-guardian')
         self.temp_dir.mkdir(exist_ok=True)
@@ -63,9 +69,12 @@ class S3Guardian:
         logger.info(f"S3-Guardian initialized")
         logger.info(f"Target: {self.target_path}")
         logger.info(f"S3 Bucket: {self.s3_bucket}/{self.s3_prefix}")
-        logger.info(f"Endpoint: {self.s3_endpoint_url}")
+        if self.s3_endpoint_url:
+            logger.info(f"Endpoint: {self.s3_endpoint_url}")
         logger.info(f"Interval: {self.backup_interval}")
         logger.info(f"Retention: {self.retention_days} days")
+        if self.webhook_url:
+            logger.info(f"Webhook: Enabled (on_success={self.webhook_on_success}, on_failure={self.webhook_on_failure})")
     
     def validate_environment(self):
         """Validate required environment variables"""
@@ -73,8 +82,7 @@ class S3Guardian:
             'AWS_ACCESS_KEY_ID',
             'AWS_SECRET_ACCESS_KEY',
             'S3_BUCKET',
-            'TARGET_PATH',
-            'S3_ENDPOINT_URL',
+            'TARGET_PATH'
         ]
         
         missing = [var for var in required_vars if not os.getenv(var)]
@@ -87,6 +95,106 @@ class S3Guardian:
         if not target_path.exists():
             logger.error(f"Target path does not exist: {target_path}")
             sys.exit(1)
+    
+    def send_webhook(self, success: bool, message: str, backup_info: dict = None):
+        """Send webhook notification"""
+        if not self.webhook_url:
+            return
+        
+        # Don't send if disabled for this status
+        if success and not self.webhook_on_success:
+            return
+        if not success and not self.webhook_on_failure:
+            return
+        
+        try:
+            # Discord-specific formatting
+            if "discord.com" in self.webhook_url:
+                embed = {
+                    "title": "🛡️ S3-Guardian Backup",
+                    "description": message,
+                    "color": 0x00ff00 if success else 0xff0000,
+                    "fields": [
+                        {"name": "Backup Name", "value": self.backup_name, "inline": True},
+                        {"name": "Status", "value": "✅ Success" if success else "❌ Failed", "inline": True},
+                    ],
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                
+                if backup_info:
+                    if "backup_file" in backup_info:
+                        embed["fields"].append({
+                            "name": "File", "value": backup_info["backup_file"], "inline": False
+                        })
+                    if "size_mb" in backup_info:
+                        embed["fields"].append({
+                            "name": "Size", "value": f"{backup_info['size_mb']} MB", "inline": True
+                        })
+                    if "s3_location" in backup_info:
+                        embed["fields"].append({
+                            "name": "Location", "value": f"`{backup_info['s3_location']}`", "inline": False
+                        })
+                
+                payload = {"embeds": [embed]}
+            
+            # Slack-specific formatting
+            elif "slack.com" in self.webhook_url:
+                payload = {
+                    "text": f"{'✅' if success else '❌'} S3-Guardian: {message}",
+                    "blocks": [
+                        {
+                            "type": "header",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🛡️ S3-Guardian Backup"
+                            }
+                        },
+                        {
+                            "type": "section",
+                            "fields": [
+                                {"type": "mrkdwn", "text": f"*Backup Name:*\n{self.backup_name}"},
+                                {"type": "mrkdwn", "text": f"*Status:*\n{'✅ Success' if success else '❌ Failed'}"}
+                            ]
+                        }
+                    ]
+                }
+                
+                if backup_info:
+                    fields = []
+                    if "backup_file" in backup_info:
+                        fields.append({"type": "mrkdwn", "text": f"*File:*\n{backup_info['backup_file']}"})
+                    if "size_mb" in backup_info:
+                        fields.append({"type": "mrkdwn", "text": f"*Size:*\n{backup_info['size_mb']} MB"})
+                    if fields:
+                        payload["blocks"].append({"type": "section", "fields": fields})
+            
+            # Generic webhook format (n8n, Zapier, custom, etc.)
+            else:
+                payload = {
+                    "status": "success" if success else "failure",
+                    "message": message,
+                    "backup_name": self.backup_name,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "target_path": str(self.target_path),
+                    "s3_bucket": self.s3_bucket
+                }
+                
+                if backup_info:
+                    payload.update(backup_info)
+            
+            response = requests.post(
+                self.webhook_url,
+                json=payload,
+                timeout=10
+            )
+            
+            if response.status_code in [200, 204]:
+                logger.info("✓ Webhook notification sent successfully")
+            else:
+                logger.warning(f"Webhook returned status {response.status_code}")
+                
+        except Exception as e:
+            logger.error(f"Failed to send webhook: {e}")
     
     def compress_directory(self, source_path: Path, output_file: Path) -> bool:
         """
@@ -216,11 +324,16 @@ class S3Guardian:
             # Step 1: Compress
             if not self.compress_directory(self.target_path, temp_file):
                 logger.error("Backup failed at compression stage")
+                self.send_webhook(False, "Backup failed at compression stage")
                 return False
+            
+            # Get file size for webhook
+            file_size_mb = temp_file.stat().st_size / (1024 * 1024)
             
             # Step 2: Upload to S3
             if not self.upload_to_s3(temp_file, s3_key):
                 logger.error("Backup failed at upload stage")
+                self.send_webhook(False, "Backup failed at upload stage")
                 return False
             
             # Step 3: Cleanup temporary file
@@ -233,11 +346,20 @@ class S3Guardian:
             logger.info("Backup completed successfully")
             logger.info(f"Backup location: s3://{self.s3_bucket}/{s3_key}")
             logger.info("=" * 60)
+            
+            # Send success webhook
+            self.send_webhook(True, "Backup completed successfully", {
+                "backup_file": backup_filename,
+                "s3_location": f"s3://{self.s3_bucket}/{s3_key}",
+                "size_mb": round(file_size_mb, 2)
+            })
+            
             return True
             
         except Exception as e:
             logger.error(f"Backup failed: {e}")
             self.cleanup_temp_files(temp_file)
+            self.send_webhook(False, f"Backup failed: {str(e)}")
             return False
     
     def parse_interval(self, interval_str: str) -> dict:
